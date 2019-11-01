@@ -136,5 +136,98 @@ stable：双号，稳定版
 
 Tengine是由淘宝网发起的Web服务器项目。它在Nginx的基础上，针对大访问量网站的需求，添加了很多高级功能和特性。Tengine的性能和稳定性已经早大型的网站如淘宝网，天猫商城等得到了很好的检验。Tengine很多特性领先于Nginx官方版本，其修改了Nginx官方版本的主干代码，这样就遇到一个问题，就是没办法跟Nginx的官方版本同步升级。所以虽然其生态也很丰富，也可以使用官方的第三方模块，但由于这个特点，不推荐使用。
 
+Openresty
+
+开源版与商业版
+
+开源Openresty: http://openresty.org
+
+商业版openrestry: https://openresty.com
+
+**如果业务功能没太强的诉求，那开源的Nginx即可满足。如果开发API服务或web防火墙，则Openresty是个很好的选择**
+
+## 2.6 编译Nginx
+
+Nginx的官方模块不是每个都是默认开启的，需要编译开启。这样才能将第三方模块编译进Nginx的二进制文件中。
+
+### 2.6.1 源码目录介绍
+
+下载nginx源码文件并解压:
+
+```bash
+# wget https://nginx.org/download/nginx-1.14.2.tar.gz
+# wget https://nginx.org/download/nginx-1.14.2.tar.gz
+# wget https://nginx.org/download/nginx-1.14.2.tar.gz
+[root@development nginx-1.14.2]# ll
+total 736
+drwxr-xr-x 6 nginx nginx   4096 Oct 31 13:29 auto
+-rw-r--r-- 1 nginx nginx 288742 Dec  4  2018 CHANGES
+-rw-r--r-- 1 nginx nginx 440121 Dec  4  2018 CHANGES.ru
+drwxr-xr-x 2 nginx nginx   4096 Oct 31 13:29 conf
+-rwxr-xr-x 1 nginx nginx   2502 Dec  4  2018 configure
+drwxr-xr-x 4 nginx nginx     68 Oct 31 13:29 contrib
+drwxr-xr-x 2 nginx nginx     38 Oct 31 13:29 html
+-rw-r--r-- 1 nginx nginx   1397 Dec  4  2018 LICENSE
+drwxr-xr-x 2 nginx nginx     20 Oct 31 13:29 man
+-rw-r--r-- 1 nginx nginx     49 Dec  4  2018 README
+drwxr-xr-x 9 nginx nginx     84 Oct 31 13:29 src
+```
+
+auto目录: 4个子目录, cc directory-- used for complie
+
+​					lib directory-- library
+
+​					os directory - detect os type
+
+​				其他的文件是辅助configure脚本执行的时候去判定支持哪些模块，当前操作系统有什么特性可以供给Nginx使用
+
+change文件：Nginx每个版本提供了哪些特性和Bug fix
+
+conf目录：配置文件示例目录，里面包含配置文件模板，安装后拷贝到Nginx的配置文件目录
+
+configure文件：脚本，用来生成中间文件，zhixi编译前的必备动作
+
+contrib目录：提供了2个perl脚本和vim的工具，提供配置文件语法高亮等支持。使用方法：
+
+```bash
+[root@development nginx-1.14.2]# cp -r contrib/vim/* ~/.vim/
+```
+
+html目录：提供了两个标准的 html文件，50x错误和Index.html欢迎页面 
+
+man目录：Linux对Nginx的帮助文件,查看帮助文件内容
+
+```bash
+[root@development man]# ls
+nginx.8
+[root@development man]# man ./nginx.8 
+```
+
+src目录：源代码，框架都这个目录中
+
+### 2.6.2 Configuration
+
+编译前先看看configure支持哪些参数：
+
+```bash
+[root@development nginx-1.14.2]# ./configure --help | more
+```
+
+这里分为几个大块：
+
+1 PATH相关，编译时去哪里找一些文件作为其辅助文件
+
+如动态模块--modules-path=PATH
+
+nginx.lock文件的位置：--lock-path=PATH
+
+如果没有变动，则只需要指定--prefix=PATH,其他的配置则在prefix指定的目录中建立响应的文件夹
+
+### 2.6.3 生成中间文件介绍
+
+
+
+
+
 
 
