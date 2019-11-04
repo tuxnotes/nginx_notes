@@ -223,7 +223,133 @@ nginx.lock文件的位置：--lock-path=PATH
 
 如果没有变动，则只需要指定--prefix=PATH,其他的配置则在prefix指定的目录中建立响应的文件夹
 
+2 第二类参数主要是确定使用哪些模块，不使用哪些模块。参数的前缀通常是with 或without. 带with的，意味着默认是不会编译进nginx的；带without的默认是便已进Nginx的。
+
+3 第三类参数指定了Nginx编译过程中需要的特殊参数。如gcc编译需要设定的优化参数，开启debug级别日志等
+
+configure：
+
+```bash
+[root@development nginx-1.14.2]# ./configure --prefix=/root/nginx # /root/nginx目录此时可以不存在 
+```
+
+configure之后会生成一些中间文件，放到objs目录
+
 ### 2.6.3 生成中间文件介绍
+
+```bash
+[root@development objs]# pwd
+/root/nginx-1.14.2/objs
+[root@development objs]# ll
+total 80
+-rw-r--r-- 1 root root 17628 Nov  4 12:46 autoconf.err
+-rw-r--r-- 1 root root 39263 Nov  4 12:46 Makefile
+-rw-r--r-- 1 root root  6793 Nov  4 12:46 ngx_auto_config.h
+-rw-r--r-- 1 root root   657 Nov  4 12:46 ngx_auto_headers.h
+-rw-r--r-- 1 root root  5725 Nov  4 12:46 ngx_modules.c
+drwxr-xr-x 9 root root    84 Nov  4 12:46 src
+```
+
+这里比较重要的是ngx_modules.c文件，它决定了接下来编译的时候有哪些模块会被编译进Nginx。
+
+所有的模块都列在这个文件中
+
+### 2.6.3 执行编译
+
+```bash
+[root@development nginx-1.14.2]# pwd
+/root/nginx-1.14.2
+[root@development nginx-1.14.2]# make
+```
+
+make没有错误的话，编译后的nginx二进制文件放在objs目录中。这里需要知道编译后二进制文件的位置，因为在升级的过程中，make之后并不是执行make install进行安装升级，而是将make之后生成的二进制文件拷贝到安装目录中
+
+编译时生的中间文件都放在objs/src文件中
+
+安装:
+
+```bash
+[root@development nginx-1.14.2]# make install
+[root@development nginx-1.14.2]# ll /root/nginx
+total 4
+drwxr-xr-x 2 root root 4096 Nov  4 13:02 conf
+drwxr-xr-x 2 root root   38 Nov  4 13:02 html
+drwxr-xr-x 2 root root    6 Nov  4 13:02 logs
+drwxr-xr-x 2 root root   18 Nov  4 13:02 sbin
+```
+
+## 2.7 Nginx配置语法
+
+Nginx配置文件是一个ascii文本文件，主要由两部分组成：一部分是directive指令；一部分是directive block指令块。
+
+1. 配置文件由指令和指令块构成
+2. 每条指令以; 分号结尾，指令与参数间以空格分隔
+3. 指令块以{}大括号将多条指令组织在一起
+4. include语句允许组合多个配置文件以提升可维护性
+5. 使用#符号添加注释，提高可读性
+6. 使用$符号使用变量
+7. 部分执行的参数支持正则表达式
+
+```nginx
+http {
+    include		mime.types;
+    upstream thwp {
+        server 127.0.0.1:8000;
+    }
+    
+    server {
+        listen 443 http2;
+        #Nginx配置语法
+        limit req zone $binary_remote_addr zone=one:10m rate=1r/s;
+        location ~* \.(gif|jpg|jpeg)$ {
+            proxy_cache my_cache;
+            expires 3m;proxy_cache_key $host$uri$is_args$args;
+            proxy_pass http://thwp;
+        }
+    }
+}
+```
+
+**配置参数：时间的单位**
+
+ms		milliseconds
+
+s		seconds
+
+m		minutes
+
+h		hours
+
+d 		days
+
+w		weeks
+
+M		months, 30 days
+
+y		years, 365 days
+
+**配置参数: 空间的单位**
+
+当数字后不加任何空间单位时，表示bytes
+
+ 		bytes
+
+k/K		kilobytes
+
+m/M	megabytes
+
+g/G		gigabytes
+
+**http配置的指令块**
+
+包含4个块：
+
+- http
+- upstream
+- server
+- location
+
+
 
 
 
