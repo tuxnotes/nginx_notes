@@ -349,6 +349,122 @@ g/G		gigabytes
 - server
 - location
 
+## 2.8 Nginx命令行及演示:重载、热部署、日志切割
+
+**Nginx命令行**
+
+格式：nginx -s reload
+
+帮助：-?  -h
+
+使用指定的配置文件：-c
+
+指定配置指令：-g ，命令行中指定指令，覆盖配置文件中的指令
+
+指定运行目录：-p
+
+发送信号：-s
+
+ - 立刻停止服务：stop
+ - 优雅的停止服务：quit
+ - 重载配置文件：reload
+ - 重新开始记录日志文件：reopen
+
+测试配置文件是否有语法错误：-t  -T
+
+打印Nginx的版本信息、编译信息等：-v  -V
+
+### 2.8.1 命令行演示
+
+**重载配置文件**
+
+编辑nginx.conf文件后执行：`nginx -s reload` (最好先检查一下语法)
+
+**热部署**
+
+当Nginx处于运行状态时
+
+```bash
+[root@development sbin]# ps -ef | grep nginx
+root      1149     1  0 13:06 ?        00:00:00 nginx: master process ./nginx
+nobody    1156  1149  0 13:06 ?        00:00:00 nginx: worker process
+```
+
+现在想更换最新版本的Nginx，根据之前的编译方法，编译了一个更新版本的Nginx。
+
+首先需要把现有的Nginx二进制文件备份
+
+```bash
+[root@development sbin]# cp nginx nginx.old
+```
+
+然后，把刚编译好的二进制文件拷贝到目录中，替换正在运行的Nginx进程所使用的二进制文件
+
+```bash
+[root@development objs]# cp -r nginx /usr/local/openresty/nginx/sbin -f
+```
+
+给正则运行的Nginx的Master进程发送信号，告知即将进行热部署
+
+```bash
+[root@development sbin]# kill -USR2 1149 (1149是nginx master进程的pid)
+```
+
+这样Nginx会使用新的Nginx二进制文件新起master进程和新的work进程，此时老的master 与work进程也存在，但不在监听80 或443。
+
+```bash
+[root@development sbin]# ps -ef | grep nginx
+root      1149     1  0 13:06 ?        00:00:00 nginx: master process ./nginx
+nobody    1156  1149  0 13:06 ?        00:00:00 nginx: worker process
+root      1166  1149  0 13:16 ?        00:00:00 nginx: master process ./nginx
+nobody    1167  1166  0 13:16 ?        00:00:00 nginx: worker process
+```
+
+
+
+给老的master进程发送信号，告知其优雅关闭它的work进程
+
+```bash
+[root@development sbin]# kill -WINCH 1149
+```
+
+可以看到老的work进程已经退出,说明请求都到了新的work进程中。
+
+但老的Master进程还在，为了防止热部署后发现还有问题，需要将新版本退出到老版本，可以给老的master进程发送reload命令，让其重新拉起work进程，再把新版本关闭。老的master进程不会自动退出的，留在这里允许我们做版本回退。
+
+```bash
+[root@development sbin]# ps -ef | grep nginx
+root      1149     1  0 13:06 ?        00:00:00 nginx: master process ./nginx
+root      1166  1149  0 13:16 ?        00:00:00 nginx: master process ./nginx
+nobody    1167  1166  0 13:16 ?        00:00:00 nginx: worker process
+```
+
+**切割日志文件**
+
+```bash
+[root@development logs]# mv access.log log.bak
+[root@development logs]# ../sbin/nginx -s reopen
+```
+
+一般可以采用脚本结合crontab来做
+
+```bash
+[root@development logs]# crontab -l
+0 0 1 * * root /usr/local/openresty/nginx/logs/rotate.sh
+[root@development logs]# pwd
+/root/nginx/logs
+[root@development logs]# cat rotate.sh 
+#!/bin/bash
+# Rotate the Nginx logs to prevent a single logfile from consuming too much disk space.
+LOGS_PATH=/usr/local/openresty/nginx/logs/history
+CUR_LOGS_PATH=/usr/local/openresty/nginx/logs
+YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
+mv ${CUR_LOGS_PATH}/access.log ${LGOS_PATH}/access_${YESTODAY}.log
+mv ${CUR_LOGS_PATH}/error.log ${LGOS_PATH}/error_${YESTODAY}.log
+# 向Nginx主进程发送USR1信号。USR1信号是重新打开日志文件
+kill -USR1 $(cat /usr/local/openresty/nginx/logs/nginx.pid)
+```
+
 
 
 
