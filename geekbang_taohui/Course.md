@@ -465,7 +465,103 @@ mv ${CUR_LOGS_PATH}/error.log ${LGOS_PATH}/error_${YESTODAY}.log
 kill -USR1 $(cat /usr/local/openresty/nginx/logs/nginx.pid)
 ```
 
+## 2.9 搭建静态资源Web服务器
 
+修改配置
+
+```nginx
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+	# 日志格式配置，需要命名，如main
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+	# 日志位置，及使用的格式配置，如main
+    access_log  logs/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    #keepalive_timeout  0;
+    keepalive_timeout  65;
+
+    gzip  on;
+    gzip_min_length	1;	# 文件小于1字节不在压缩
+    gzip_comp_level	2;	# 压缩级别
+    gzip_type	text/plain application/x-javascript text/css application/xml text/javascript application/x-httpd-php image/jpeg image/gif image/png;
+    server {
+    listen		8080;
+    server_name geek.taohui.pub;
+    
+    #charset	koi8-r;
+    
+    access_log	logs/geek.access.log	main;
+    
+    location / {
+        alias	dlib/;  # alias 使url中路径与dlib中文件路径一一对应
+        autoindex	on;		# 显示目录结构
+        set $limit_rate	1k;	# 带宽有限，限制Nginx向客户端发送响应的速率。每秒传输1KB到浏览器中
+        #index	index.html	index.htm;
+    }
+    
+    #error_page	404		/404.html;
+	}   
+
+}
+```
+
+启用上述配置后，通过浏览器抓包发现Nginx传输的数据字节数较大，所以启用gzip压缩
+
+## 2.10 搭建具有缓存功能的反向代理服务器
+
+前面搭建了一个静态资源web服务器，这里将以此静态资源服务器作为上游服务器，再搭建一个Nginx服务器，作为反向代理。由于上游服务要处理非常复杂的业务逻辑，而且强调开发效率，所以上游服务器的性能并不怎么样。Nginx反向代理按照负载均衡算法，将请求代理给多台上游服务器进行服务，这样就实现了水平扩展，这样在用户无感知的情况下，添加更多的上游服务器来提升服务性能。而当上游服务器出现问题的时候，Nginx会将请求发给正常的上游服务器。上游服务器对公网是不提供访问的。
+
+```nginx
+log_format main ...............
+client_max_body_size 60M;
+proxy_cache_path /tmp/nginxcache levels=1:2 keys_zone=my_cache:10m max_size=10g inactive=60m use_temp_path=off; #缓存存放的位置
+include vhost/*.conf;
+upstream local {
+	server 127.0.0.1:8080;
+}
+
+server {
+	server_name geektime.taohui.pub;
+	listen	80;
+	
+	location / {
+		proxy_set_header	Host	$host; 
+		proxy_set_header	X-Real-IP	$remote_addr;
+		proxy_set_header	X-Forwarded-For	$proxy_add_x_forwarded_for;
+		
+		peoxy_cache	my_chache;
+		proxy_cache_key	$host$uri$is_args$args;
+		proxy_cache_valid	200 304 302 1d;
+		proxy_pass http://local;
+	}
+}
+```
+
+同一个url不同用户访问的内容不容
+
+## 2.11 用GoAccess实现可视化并实时监控access日志
+
+access日志记录了Nginx非常重要的信息，可以用access日志定位问题或分析运营数据。但实时监控access日志比较困难。GoAccess工具可以以图形化方式，通过websocket协议实时把access日志的变迁反映到浏览器中。
+
+## 2.12 从网络原理来看SSL安全协议
+
+## 2.13 对称加密与非对称加密各自的应用场景
+
+## 2.14 SSL证书的公信力是如何保证的
+
+## 2.15 SSL协议握手是Nginx的性能瓶颈在哪里
+
+## 2.16 用免费SSL证书实现一个HTTPS站点
+
+## 2.17 基于OpenResty用Lua语言实现简单服务
+
+# 3 Nginx架构基础
 
 
 
