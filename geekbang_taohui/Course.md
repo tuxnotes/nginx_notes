@@ -631,11 +631,104 @@ CA会把过期证书放到CRL服务器上，这个服务器会把所有的过期
 
 ## 2.15 SSL协议握手是Nginx的性能瓶颈在哪里
 
+TLS的通信过程如下：
 
+![TLS Communication Process](./tls_process.png)
+
+TLS通信要完成4个目的：
+
+- 身份验证
+- 达成安全套件共识
+- 传递秘药
+- 加密通讯
+
+### 2.16.1 身份验证
+
+第一步：由浏览器向服务器发送`Client Hello` . 但浏览器是多样化的，比如有IE，chrome，Firefox等，并且浏览器的版本不停的变更，所以不同的浏览器所致的加密算法，安全套件都是不同的。所以`Client Hello`主要是告诉服务器我支持哪些加密算法。
+
+第二步：我们的Nginx server有一个支持的算法列表，以及其倾向的加密算法与套件。Nginx在这里会选择一套它最喜欢的加密套件发送给客户端。如果 我们想复用session,也就是说Nginx打开了session cache，希望在一天内断开连接的客户端不用再次协商密钥，那么在这一步它可以直接复用之前的密钥。所以`Server Hello`信息主要会发送究竟选择哪个安全套件。
+
+第三步：第三步中Nginx会把自己的公钥证书发送给浏览器，公钥证书中是包含证书链的。所以浏览器可以找到自己的根证书库，去验证证书是否是有效的。
+
+第四步：服务器发送`Server Hello Done`。但是如果之前协商的安全套件，比如说我们提到的椭圆曲线算法，这时候需要在第三部和第四步之间将需要的参数发送给客户端。以方便我们在第六步生成最终加密的密钥。
+
+第五步：客户端也需要根据椭圆曲线的公共参数生成自己的私钥以后，再把公钥发送给服务器，那么这样服务器有了自己的私钥，把公钥发送给客户端，可以根据自己的私钥和客户端的公钥共同生成双发加密的密钥。也就是第六步，`Key generation` 。这一步是服务器自己独自做的。而客户端根据服务器发来的公钥和自己的私钥也可以生成一个密钥，而服务器和客户端各自生成的密钥是相同的，这个是有非对称加密算法来保证的，也就是我们之前说的dsce算法。接下来，我们就可以用第六步生成的密钥进行数据加密，进行通信。
+
+从这个过程中我们可以看到，TLS通信主要在做两件事：第一，交换密钥。第二，加密数据。所以最消耗性能的也是这两点。我们来看一下Nginx怎么样去优化它的性能。
+
+Nginx握手性能如下图所示：
+
+![Nginx握手性能](./nginx_tls_perf.png)
+
+这里主要看它的算法性能。Nginx在握手的时候主要是看它的椭圆加密算法和RSA的性能。从上图中可以看到，对于小文件，握手是主要影响它QPS性能的主要指标。
+
+Nginx数据加密性能如下图所示：
+
+![Nginx数据加密性能](./nginx_enc_perf.png)
+
+对于大文件，我们就要考虑对称加密算法的性能。比如AES。对称加密算法虽然性能很好，但对非常大的文件，我们去测吞吐量的时候，也可以看出相对于其他算法AES的性能还是比较好的，它能达到的极限在100以上，不到120.
+
+Nginx的综合性能如下图所示：
+
+![Nginx综合性能](./nginx_com_perf.png)
+
+当以小文件为主时，主要考验的是nginx的非对称加密的性能，比如RSA。当我们主要处理大文件时，主要考验的是对称加密算法的性能，比如AES。当我们面的场景是小文件比较多时，我们可以重点应该优化椭圆曲线的密码强度，看是否能有所降低。当主要面对大的文件处理的时候，我们主要考虑AES算法是否可以替换为更有效的算法，或者把密码强度调的更小一些。
 
 ## 2.16 用免费SSL证书实现一个HTTPS站点
 
+使用Let's encrypt生成一个免费的DV证书。
 
+nginx.conf中server_name会被Let's encypt自动脚本识别。
+
+安装工具：
+
+```bash
+# yum -y install python2-certbot-nginx
+```
+
+工具安全好后，会提供一个cerbot的命令，使用方法如下：
+
+```bash
+# certbot --nginx --nginx-server-root=/usr/loca/openresty/nginx/conf -d geektime.taohui.pub
+```
+
+上面的命令执行过程会有提示，根据提示输入选择即可完成。
+
+命令的执行主要完成的工作可以从配置文件中看出，在配置文件的server指令块中增加了5行：
+
+```nginx
+include vhost/*.conf;
+server{
+	server_name geektime.taohui.pub;
+	listen 80;
+	location / {
+		alias html/geek/;
+	}
+listen 443 ssl; # managed by Certbot
+ssl_certificate /etc/letsencrypt/live/geektime.taohui.pub/fullchain.pem; # managed by Certbot
+ssl_certificate_key /etc/letsencrypt/live/geektime.taohui.pub/privkey.pem; # managed by Certbot
+include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+}
+```
+
+```
+# vim /etc/letsencrypt/options-ssl-nginx.conf
+# This file contains important security parameters. if you modify this file
+# manually, Certbot will be unable to automatically provide future security
+# updates. Instead, Certbot will print and log an error message with a path to
+# the up-to-date file that you will need to refer to when manually updating 
+# this file.
+
+ssl_session_cache shared:le_nginx_SSL:1m; # 握手最消耗性能，所以为了减少握手，使用了cache. 1m可以为大约是4000个https连接服务
+ssl_session_timeout 1440m; # 1440m也就是，一天，一天内密钥可以复用
+
+ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+ssl_prefer_server_ciphers on;
+ssl_ciphers "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:......." # 安全套件是有顺序的，代表使用的优先级
+```
+
+ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem设置了非对称加密的参数，这些参数决定了网络安全的加密强度。
 
 ## 2.17 基于OpenResty用Lua语言实现简单服务
 
