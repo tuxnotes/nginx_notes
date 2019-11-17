@@ -1,3 +1,5 @@
+[TOC]
+
 # 1 综述
 
 由于Nginx与硬件和操作系统的深度挖掘，使得其在保持高并发的前提下实现了高吞吐量。其优秀的模块设计使得其生态圈异常丰富。大量的第三方模块使得Nginx轻松实现大量场景下的定制化需求。BSD许可证又赋予Nginx最大的灵活性。
@@ -732,9 +734,112 @@ ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem设置了非对称加密的参数�
 
 ## 2.17 基于OpenResty用Lua语言实现简单服务
 
+### 2.17.1 OpenResty安装实践
 
+**下载OpenResty**
+
+官方站点下载源码，解压进入源代码目录
+
+```bash
+[root@dev01 ~]# wget https://openresty.org/download/openresty-1.15.8.2.tar.gz
+[root@dev01 openresty-1.15.8.2]# ll
+total 100
+drwxrwxr-x. 46 1000 1003  4096 8月  29 13:33 bundle
+-rwxrwxr-x.  1 1000 1003 52432 8月  29 13:32 configure
+-rw-rw-r--.  1 1000 1003 22924 8月  29 13:32 COPYRIGHT
+drwxrwxr-x.  2 1000 1003   203 8月  29 13:32 patches
+-rw-rw-r--.  1 1000 1003  4689 8月  29 13:32 README.markdown
+-rw-rw-r--.  1 1000 1003  8972 8月  29 13:32 README-windows.txt
+drwxrwxr-x.  2 1000 1003    52 8月  29 13:32 util
+```
+
+**分析目录结构**
+
+openresty源代码目录相比少了很多东西，少的东西都移到`bundle`目录下。进入`bundle`目录，发现有一个`nginx-1.15.8`的目录，这说明没有出现在nginx 1.15.8版本中的特性，openresty中也不会有。`bundle`目录中的其他目录又分为2类：一类是nginx的第三方模块，通常是c代码模块，通常以ngx_开头。有的如memc-nginx-module-0.19也是c模块。另一类是lua模块。是用lua写的，它需要ngx_lua-0.10.15模块提供的一些功能。我们在编译的时候主要是编译c模块。
+
+通过`./configure --help`可以发现openresty与nginx的configure没太大区别。只不过openresty集成了很多第三方模块。比如，http_echo_module, http_xss_module等，很多都是章亦春写的。http_lua_module, http_lua_upstream_module是openresty的核心模块，这些是不能移除的，否则openresty就没办法用了。
+
+**编译**
+
+```bash
+# ./configure
+# make install
+```
+
+**添加lua代码**
+
+```nginx
+server {
+    server_name geektime.taohui.pub;
+    listen 80;
+    
+    location /lua {
+        default_type text/html;
+        content_by_lua '
+            ngx.say("User-Agent: ", ngx.req.get_headers()["User-Agent"])
+            ';
+    }
+    locatioin / {
+        alias html/geek/;
+    }
+}
+```
+
+不能直接把lua的语法添加到nginx.conf文件中。为了浏览器中能直接显示lua输出的内容，所以配置中添加了`default_type text/html`。
+
+lua模块中提供了一些API，如`ngx.say`，生成http响应，也就是说`ngx.say`的内容是放到body中的，而不是放到header中的。body中的文本是可以通过ngx.say生成的。
+
+`ngx.req.get_headers()`会取到http header的内容。
+
+**运行**
 
 # 3 Nginx架构基础
+
+## 3.1 Nginx的请求处理流程
+
+## 3.2 Nginx的进程结构
+
+## 3.3 Nginx的进程结构实例演示
+
+## 3.4 使用信号管理Nginx的父子进程
+
+## 3.5 reload重载配置文件的真相
+
+## 3.6 热升级的完整流程
+
+## 3.7 优雅地关闭worker进程
+
+## 3.8 网络收发与Nginx事件间的对应关系
+
+## 3.9 Nginx网络事件演示
+
+## 3.10 Nginx的事件驱动模型
+
+## 3.11 epoll的优劣及原理
+
+## 3.12 Nginx的请求切换
+
+## 3.13 同步&异步、阻塞&非阻塞之间的区别
+
+## 3.14 Nginx的模块究竟是什么
+
+## 3.15 Nginx模块的分类
+
+## 3.16 Nginx如何通过连接池处理网络请求
+
+## 3.17 内存池对性能的影响
+
+## 3.18 所有worker进程协同工作的关键:共享内存
+
+## 3.19 用好共享内存的工具: Slab管理器
+
+## 3.20 哈希表的max_size与bucket_size如何配置
+
+## 3.21 Nginx中最常用的容器: 红黑树
+
+## 3.22 使用动态模块提升运维效率
+
+# 4 详解HTTP模块
 
 
 
