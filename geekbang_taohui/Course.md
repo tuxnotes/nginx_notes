@@ -859,6 +859,47 @@ Nginx有两种进程结构：一种是单进程结构；一种是多进程结构
 
 ## 3.4 使用信号管理Nginx的父子进程
 
+多进程间通信可以使用共享内存，信号等。当做进程间管理时通常只使用信号。Nginx进程管理使用的信号如下图：
+
+![nginx进程管理信号](./nginx_sig.png)
+
+能够发送和处理信号的有master 进程，worker进程，及nginx命令行
+
+**Master进程**
+
+master进程可以启动worker进程，所以首先要监控。
+
+- 监控worker进程：worker process 是否发送 CHLD信号。Linux系统规定，当子进程终止的时候，会向父进程发送CHLD信号。所以worker进程由于一些模块的bug导致worker进程意外终止，那么master进程可以通过CHLD发现这一时间，然后立刻拉起新的worker进程。
+
+- 管理work进程
+
+   * TERM, INT立刻停止Nginx进程
+   * QUIT优雅的停止Nginx进程，所谓优雅就是可以慢慢的停，但是要保证不要对用户发送立刻结束连接，像TCP的reset复位请求这样的报文
+   * HUP 重载配置文件
+   * USR1 重新打开日志文件做日志文件的切割
+   * **USR2** 针对做热部署时使用
+   * **WINCH ** 针对做热部署时使用
+
+  上面的6种worker进程管理信号的前4个可以同Nginx命令行加特定的命令直接向master进程发送的。而后面两个字体加黑的USR2 , WINCH只能通过kill命令行直接向master进程发送信号。也就是说要先找到master process的PID，通过kill发送信号。
+
+- **worker进程**
+
+  * TERM,INT
+  * QUIT
+  * USR1
+  * WINCH
+
+  为什么我们通常不直接对worker进程发送信号？因为我们希望由master进程来管理worker进程，所以对worker进程发送信号，Master进程会收到同样的结果，而我们通常管理master进程，Master进程收到信号后会去再把信号发送给worker进程。
+
+- **Nginx命令行**
+
+  nginx启动后，会将PID记录到一个文件中，通常是记录到nginx安装目录的logs目录下的nginx.pid文件中。此文件记录了master进程的PID。当我们执行`nginx -s`这样的命令时，Nginx工具命令行会去读取nginx.pid文件，然后发送对应的信号
+
+  * reload: HUP
+  * reopen: USR1
+  * stop: TERM
+  * quit: QUIT
+
 ## 3.5 reload重载配置文件的真相
 
 ## 3.6 热升级的完整流程
