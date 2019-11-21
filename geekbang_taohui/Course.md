@@ -902,6 +902,23 @@ master进程可以启动worker进程，所以首先要监控。
 
 ## 3.5 reload重载配置文件的真相
 
+当更了Nginx配置文件时，都会执行`nginx -s reload`.执行这个命令的原因是我们洗完Nginx不能停止服务，在处理新的请求的同时，把Nginx配置文件平滑从旧 的`nginx.conf`更少为新的`nginx.conf`。这样的功能对Nginx非常有必要，但往往会发现执行reload后Nginx的worker进程变多了，这是因为以老的配置运行的worker进程长时间没有退出。当我们采用stream做反向代理的时候，可能这种场景会更多。下面分析Nginx reload流程，优雅退出与立即退出的区别。
+
+**Nginx reload流程**
+
+1. 向master进程发送HUP信号(reload命令)
+2. master进程校验配置语法是否正确
+3. master进程打开新的监听端口。为什么会打开新的监听端口？可能是新的配置文件中引入了如443新的端口。子进程会继承所有父进程已经打开的端口。
+4. master进程用新配置启动新的worker子进程
+5. master进程向老worker子进程发送QUIT信号，优雅关闭。
+6. 老worker进程关闭监听句柄，处理完当前连接后结束进程。
+
+如图所示
+
+![nginx reload procedure](./nginx_reload.png)
+
+reload后会用新的配置起新的worker进程，此时新老worker进程会同时存在。老的worker进程处理完已连接的请求后会关闭连接，哪怕这个连接是keep-alived连接。但是异常的情况，如一些请求出了问题，如客户端长时间没有处理，会导致请求长时间占用在worker进程上，从而worker进程会一直存在。但新的连接已经跑在了新的worker进程上，所以影响并不是很大，只是老的worker连接会长时间占用。一些Nginx版本中加入了worker shutdown timeout配置。这样当timeout时间到了以后，如果老的worker进程还没退出的话，可以强制其退出。
+
 ## 3.6 热升级的完整流程
 
 ## 3.7 优雅地关闭worker进程
