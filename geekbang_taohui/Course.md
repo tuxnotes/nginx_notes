@@ -1132,6 +1132,36 @@ event, http, mail, stream - dir, 子类型模块
 
 ## 3.16 Nginx如何通过连接池处理网络请求
 
+之前谈到了Nginx的读写事件，这些网络读写事件究竟是怎样应用到Nginx上的？还有谈到Nginx使用了连接池来增加它对资源的利用率，其是如何使用的？
+
+**连接池**
+
+![连接池](./connection_pool.png)
+
+看一下右边这张图，每个worker进程都有一个独立的`ngx_cycle_t`数据结构。其包含一个数组`connections`，这就是所谓的连接池。它指向的数组有多大呢？在官方文档中有 个配置项，在core_module下的worker_connections,
+
+```bash
+Syntax: worker_connections number;
+Default: worker_connections 512;
+Context: events
+```
+
+默认会有512大小的数组，数组中每一个元素就是一个连接。默认值是较小的，因为Nginx动辄会处理万以上级别。这个连接不仅用于客户端的连接，还用于与上游服务器的连接。如果做反向代理，每个客户端意味着消耗2个连接。
+
+每个连接自动的对应一个读事件和一个写事件，所以在`ngx_cycle_t`结构体中还有`write_events` , `read_events`.它们指向的数组的大小与worker_connections的配置是一样的。所以这三个是通过序号对应的。第5个连接自然就对应这第5个读事件和第5个写事件。所以在考虑Nginx能释放多大的性能时，首先把worker_connections保证足够使用。worker_connections指向的数组同时也影响了我们所打开的内存。当我们使用配置了更大的worker_connections，也就意味着Nginx使用了更大的内存。所以每一个connection到底用了多大的内存可以从下图中找到答案：
+
+![核心数据结构](./core_datastructure.png)
+
+每个connectioin对应上图中的`ngx_connection_s`结构体。此结构体在64bit的操作系统中占用大约232bytes.具体的Nginx版本不同可能有微小的差异。每一个这样的结构体对应这一个读事件和一个写事件，之前谈到了Nginx网络事件的很多特性，在Nginx中每一个事件对应着一个结构体`ngx_event_s`。所以每个事件，也就是`ngx_event_s`结构体占用大约96字节。所以当我们使用一个连接的时候，它大概消耗的内存是232+96 * 2个字节。worker_connections配的越大，初始化的时候预分配的内存就越大。
+
+`ngx_event_s`结构体中主要关注一下成员`handler`，这是一个回调方法，也就是说很多第三方模块会把这个`handler`设为自己的实现。还有一个timer成员，当我们对http做读超时，写超时等设置的时候，实际是在操作它读时间和写时间中的timer,其就是Nginx用来实现超时定时器的。这些定时器其实也是可配的。
+
+在ngx_http_core_module模块中有很多定时器，如`client_header_timeout` . 默认是60秒，此60秒也就是我们刚刚在某个连接上准备读取它的header时，添加了一个60秒的定时器。
+
+当多个事件形成队列的时候，可以使用`ngx_queue_t queue`形成一个队列。
+
+当需要配置高并发的时候，必须保证worker_connections足够大。但也会带来一定内存消耗。
+
 ## 3.17 内存池对性能的影响
 
 ## 3.18 所有worker进程协同工作的关键:共享内存
