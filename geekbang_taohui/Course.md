@@ -1206,9 +1206,44 @@ Nginx进程间的通讯方式主要有两种：
 
 共享内存是Nginx跨worker进程通信的最有效的手段。只要我们需要让一段业务逻辑在多个worker进程中同时生效。比如在许多做集群的流控上，那么必须使用共享内存，而不能在每一个worker进程中操作。
 
-
-
 ## 3.19 用好共享内存的工具: Slab管理器
+
+前面提到多个worker进程通过共享内存通信，共享内存使用链表和rbtree数据结构。但是每个rbtree上有很多个节点，都需要分配内存去存放，怎样把一整块共享内存切割成小块给红黑树上的每个节点使用呢？使用slab管理器应用于共享内存。Slab内存管理形式如下图：
+
+![Slab内存管理](./slab.png)
+
+它首先会把整块共享内存分为很多页面，每个页面(如为4K)会且分为很多slot，比如32字节是一种slot，同样64,128字节也是一种slot,这些slot是以乘2的方式向上增长的，如果现在有一个51字节需要分配的内存，会放到64字节的slot中。slot是指向不同大小的内存块。这样的数据结构会有内存的浪费。比如51字节会占用64字节的slot存放，其他13字节会浪费。这种分配内存的方式是bestfit, 适合小对象。
+
+**统计Slab使用状态**
+
+Tiengine有一个模块叫ngx_slab_stat，用于监控slab使用状态：
+
+```bash
+$ curl http://localhost:80/slab_stat
+```
+
+可以看到不同的slot分配 了多少，使用了多少。
+
+那如何在openresty场景下使用Tengine的这个模块呢？
+
+打开tengine页面：tengine.taobao.org/document/ngx_slab_stat.html
+
+但页面中没有此模块的github地址，这意味着它没有作为一个独立的模块提供出来。那就把整个Tengine包下载下来。比如Tengine-2.2.2.tar.gz,然后解压。可以看到其有一个modules目录。modules目录下有一个ngx_slab_stat目录。可以看到这个一个标准的Nginx第三方模块。因为每个第三方模块会通过一个.c的文件定义好之前提到的`ngx_module_t`的结构体。并有一个config来帮助它编译到Nginx中。先在回到openresty中，在编译的时候将tengine的这个模块编译进去。然后在使用openresty中的shared_dict分配共享内存，在用slab_stat去查看共享内存的使用情况。
+
+```bash
+# cd openresty-1.13.6.2
+# ./configure --add-module=../tengine-2.2.2/modules/ngx_slab_stat/
+```
+
+--add-module参数可以将一个有config配置项的目录添加到Nginx中。也就是将目录中的源码使我们的config识别到。
+
+```nginx
+location = /slab_stat {
+    slab_stat;
+}
+```
+
+Slab内存管理使用了bestfit思想，也是Linux操作系统中经常使用的内存分配方式。通常使用共享内存时，都需要使用slab_stat去分配相应的内存给对象，在使用上层的数据结构来维护这些对象。
 
 ## 3.20 哈希表的max_size与bucket_size如何配置
 
