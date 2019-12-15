@@ -1297,9 +1297,168 @@ max size参数仅仅控制了最大的哈希表bucket个数，而不是实际上
 
 ## 3.22 使用动态模块提升运维效率
 
+动态模块可以帮助我们在使用nginx的时候，在升级nginx时减少编译环节。nginx编译即使用流程如下：
 
+![动态模块-减少编译环节](./dyn_module.png)
+
+在不使用动态模块的情况下编译nginx流程,上图中的第一个流程图：
+
+下载源码 --> config --> 官方框架 + 第三方模块 --> NGINX Executable
+
+使用动态模块的情况，上图中的第二个流程图：
+
+编译的时候指定了某一些模块，使用动态模块的方式去编译，除了生成二进制可执行文件外，还生成了一个动态库。也就是指定了模块的动态库Module Shared Object.
+
+**静态库**：把所有的源码编译进可执行的二进制文件中。
+
+**动态库**：在nginx二进制可执行文件中只保留了调用它的位置，或者说叫地址。
+
+在需要用到动态库里的功能时，由二进制文件去调用动态库，再去完成这样的功能。所以这里的好处表现为当我们仅仅修改某一个模块，或升级模块的功能时，特别是当nginx编译了大量第三方模块时，此时仅编译动态库，而不用替换二进制可执行文件，因为这里可能会漏掉或多编译进一些模块或参数使用错误。而编译出新的动态库以后，只要替换掉这个动态库，然后让nginx重新reload一遍，就可以使用新的模块功能了。
+
+具体使用需要上图中的六个步骤：
+
+1. 调用configure加入模块的时候，必须指明模块是用动态模块的方式编译到nginx。不是所以的模块都是可以通过动态模块的方式加入到nginx中的。只有一些模块可以。
+2. make, 编译生成binary文件
+3. 启动nginx时会去读取ngx_module_t数组，读到模块数组时，发现使用了动态模块
+4. nginx.conf中需要配置load_module配置项，此配置指定了动态模块的路径
+5. 在nginx进程中打开动态库，把这个模块加入到nginx中
+6. 基于模块数组开始初始化
+
+动态模块使用方式演示：
+
+```bash
+# configure --help |more
+```
+
+支持动态模块的模块，在configure是可以配置为`dynamic` 如`--with-http_xslt_module=dynamic` 下面示例将以http_image_filter_module为例配置动态模块
+
+image_filter功能是将图片压缩为更小的图片。
+
+```bash
+# ./configure --prefix=/home/geek/nginx --with-http_image_filter_module=dynamic
+# make
+```
+
+在安装好的nginx中多了一个modules目录，此目录中多出来一个动态库`ngx_http_image_filter_module.so` 
+
+编译完成后去修改配置文件
+
+```nginx
+load_module modules/ngx_http_image_filter_module.so; # 相对路径
+worker_processes 1;
+events {
+    worker_connections 1024;
+}
+http {
+    include mime.types;
+    server {
+        listen 8080;
+        server_name geek.taohui.pub;
+        location / {
+            root test; # 图片放到nginx安装目录下的test
+            image_filter resize 15 10; # 将原尺寸图片降为15X10像素的图片
+        }
+    }
+}
+```
+
+配置文件保存后，执行reload
+
+```bash
+# ./sbin/nginx -s reload
+```
+
+浏览器打开`geek.taohui.pub:8080/zk_watch2.png`
+
+小结：使用动态模块，在nginx如果编译了太多模块，参数极其复杂的场景下，可以减少我们出错的概率，但并不是所有模块都支持动态模块。
 
 # 4 详解HTTP模块
+
+## 4.1 第三章内容介绍
+
+Nginx模块众多，包括官方模块和第三方模块。每个模块又有自己独特的指令，这些繁多的指令记忆起来非常困。本章中将以http请求处理流程的方式把所有http常用指令梳理在一起，把HTTP模块在Nginx设计架构中定义的11个阶段的方式依次讲解每个模块的使用方法。11个阶段完成后还会将Nginx的过滤模块，它会加工向客户端的响应，给客户端返回不一样的内容。最后将Nginx的核心概念，变量。通过变量实现繁杂的功能，与nginx底层的高性能实现进行解耦
+
+## 4.2 冲突的配置指令以谁为准
+
+## 4.3 Listen指令的用法
+
+## 4.4 处理HTTP请求头部的流程
+
+## 4.5 Nginx中的正则表达式
+
+## 4.6 如何找到处理请求的server指令块
+
+## 4.7 详解HTTP请求的11个阶段
+
+## 4.8 11个阶段的顺序处理
+
+## 4.9 postread阶段：获取真是客户端地址的realip模块
+
+## 4.10 rewirte阶段的rewrite模块：return指令
+
+## 4.11 rewirte阶段的rewrite模块：重写URL
+
+## 4.12 rewirte阶段的rewrite模块：条件判断
+
+## 4.13 find_config阶段：找到处理请求的location指令块
+
+## 4.14 preaccess阶段：对连接做限制的limit_conn模块
+
+## 4.15 preaccess阶段：对请求做限制的limit_req模块
+
+## 4.16 access阶段：对IP做限制的access模块
+
+## 4.17 access阶段：对用户名密码做限制的auth_basic模块
+
+## 4.18 access阶段：使用第三方做权限控制的auth_request模块
+
+## 4.19 access阶段的satisfy指令
+
+## 4.20 precontent阶段：按序访问资源的try_files模块
+
+## 4.21 实时拷贝流量：precontent阶段的mirror模块
+
+## 4.22 content阶段：详解root和alias指令
+
+## 4.23 static模块提供的3个变量
+
+## 4.24 static模块对URL不以斜杠结尾却访问目录的做法
+
+## 4.25 index和autoindex模块的用法
+
+## 4.26 提升多个小文件性能的concat模块
+
+## 4.27 access日志的详细用法
+
+## 4.28 HTTP过滤模块的调用流程
+
+## 4.29 用过滤模块更改响应中的字符串：sub模块
+
+## 4.30 用过滤模块在HTTP响应的前后添加内容：addition模块
+
+## 4.31 Nginx变量的运行原理
+
+## 4.32 HTTP框架提供的请求相关的变量
+
+## 4.33 HTTP框架提供的其他变量
+
+## 4.34 使用变量防盗链的referer模块
+
+## 4.35 使用变量实现防盗链功能实践：secure_link模块
+
+## 4.36 为复杂的业务生成新的变量：map模块
+
+## 4.37 通过变量执行少量用户实现AB测试：split_client模块
+
+## 4.38 根据IP地址范围的匹配生成新变量：gep模块
+
+## 4.39 使用变量获得用户的地理位置：geoip模块
+
+## 4.41 对客户端使用keepalive提升连接效率
+
+
+
+
 
 
 
