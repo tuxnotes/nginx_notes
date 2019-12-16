@@ -1380,6 +1380,94 @@ Nginx模块众多，包括官方模块和第三方模块。每个模块又有自
 
 ## 4.2 冲突的配置指令以谁为准
 
+在学习Nginx HTTP模块前，需要先了解http配置指令的嵌套结构。因为http模块提供的指令很多时候可以出现在多种context中，比如既可以出现在location中，也可出现在server中，或http中，设置if等配置块中。当一个指令出现在多个配置块中的时候，以谁为准，或者说某些配置块下没有配置这条指令，但使用过程中却是生效的。还有很多第三方模块不是很规范的遵循官方 规则，此时就要判断配置指令如何生效的，或发生冲突的时候以谁为准。
+
+典型的配置块的嵌套如下：
+
+```nginx
+main # 事件模块，进程， user， 上下文等都是在main中
+http {
+    upstream {...}
+    split_clients {...}
+    map {...}
+    geo {...}
+    server {
+        if () {...}
+        locatio {
+            limit_except {...}
+        }
+        location {
+            location {
+                
+            }
+        }
+    }
+    server {
+        
+    }
+}
+```
+
+upstream , split_client, map geo都是一些模块，他们可以配置自己的配置块
+
+http , server , location是非常核心的，由框架来定义。因为我们处理一个请求时，需要先按照请求中的指示的域名，比如说host找到响应的server块，然后在根据uri找到某一个location,用location下的具体的指令处理请求。所以在这样一个典型的配置块嵌套中，我们会发现很多冲突或奇怪的指令。
+
+首先在再次声明指令的context
+
+![指令的context](./context.png)
+
+如上图，log模块记录日志，它提供了两个指令，一个是log_format , 一个是access_log.log. 可以看到log_format指令的context是http，也就是说如果把log_format放到server或location中，则Nginx检查语法失败，那就不会启动。access_log则可以出现在多个context中。当指令在多个块下同时存在的时候，会进行指令合并，但并不是所有的指令都可以合并。指令合并的总体规则先看下图：
+
+![指令合并](./directive_merge.png)
+
+所有的指令分为两类指令：一类是值指令，存储配置项的值。不同配置块下的指令是可以合并的；一类是动作指令，指定行为，不可以合并。
+
+如何判断一个指令是否能合并？就看生效阶段，server_rewrite, rewrite阶段只有http的rewrite模块才能提供，而content一般是反向代理或其他在这一部分介绍到的5个content模块，这些content模块，提供了一些方法，只能是动作类指令。当然也可以通过源码来判断，动作类指令并不是很多。
+
+存储值的指令继承规则：向上覆盖
+
+**子配置不存在时，直接使用父配置块**
+
+**子配置存在时，直接负载父配置块**
+
+```nginx
+server {
+    listen 8080;
+    root /home/geek/nginx/html;
+    access_log logs/geek.access.log main;
+    location /test {
+        root /home/geek/nginx/test;
+        access_log logs/access.test.log main;
+    }
+    location /dlib {
+        alias dlib/;
+    }
+    location / {
+        
+    }
+}
+```
+
+所有Nginx的官方模块和openresty的模块都遵循上面提到的配置值指令的合并规则。但是有一些第三方模块很可能没有遵循这一规则。此时如果其说明文档不是很详细的话，就需要通过源码判断。当他们的值指令出现冲突的时候，到底以那个为准？
+
+**HTTP模块合并配置的实现**
+
+通过源码判断，主要从下面4个点入手：
+
+- 指令在哪个模块下生效？
+- 指令允许出现在哪些块下？
+- 当指令在server块生效时，它会定义一个merge_srv_conf的方法，从http向server合并指令。如果是在location块生效的话，会定义一个merge_loc_conf方法：
+
+```c
+char *(*merge_srv_conf)(ngx_conf_t *cf,void *prev, void *conf);
+```
+
+- 配置缓存在内存
+
+       ```c
+char *(*merge_loc_conf)(ngx_conf_t *cf, void *prev, void *conf);
+       ```
+
 ## 4.3 Listen指令的用法
 
 ## 4.4 处理HTTP请求头部的流程
