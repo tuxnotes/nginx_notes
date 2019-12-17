@@ -1464,11 +1464,41 @@ char *(*merge_srv_conf)(ngx_conf_t *cf,void *prev, void *conf);
 
 - 配置缓存在内存
 
-       ```c
-char *(*merge_loc_conf)(ngx_conf_t *cf, void *prev, void *conf);
-       ```
+   ```c
+   char *(*merge_loc_conf)(ngx_conf_t *cf, void *prev, void *conf);
+   ```
 
 ## 4.3 Listen指令的用法
+
+一个请求进入Nginx开始处理之前，我们首先要监听端口。以使得Nginx可以与客户端建立一个TCP连接。监听端口的指令是listen，放在server指令块下。通过监听的端口或地址我们就可以决定有哪些匹配上我们TCP四元组的这样的一些监听的地址连接对应的server块相关的指令处理请求。
+
+listen指令的语法主要有三类：
+
+- 监听地址：listen *address[:port]* .因为可能有多块网卡，内网外网。此时可以通过选择地址来确定相应的server块只处理想这个地址建立连接的请求。
+- 只监听端口：listen *port* .
+- 监听unix:path : listen unix:path . 也就是一个UNIX socket地址，只用于本机通讯。
+
+前两种address 和port方式是要走一个完整的内核网络栈的，而unix:path是不用的，所以其性能会更好。
+
+context只能出现在server块下
+
+**示例**
+
+listen unix:/var/run/nginx.sock;
+
+listen 127.0.0.1:8000;
+
+listen 127.0.0.1; # 默认80端口
+
+listen 8000;
+
+listen *:8000;
+
+listen localhost:8000 bind; # 老Linux系统
+
+listen [::]:8000 ipv6only=on; # 只监听ipv6
+
+listen [::1];
 
 ## 4.4 处理HTTP请求头部的流程
 
