@@ -1530,7 +1530,86 @@ HTTP请求的header可能非常的长，因为它含有cookie，有的时候cook
 
 ## 4.5 Nginx中的正则表达式
 
+当我们在Nginx中确定那个域名处理用户请求的时候，或者用location中匹配哪些url的时候，或者重写一个url的时候，往往都需要正则表达式，因为正则表达式可以让匹配 的功能更加强大。
+
+正则表达式有非常复杂的使用方法，这里列举最常见的使用方法：
+
+![正则表达式一](./reg_1.png)
+
+**元字符**
+
+元字符只能匹配一个数字或字符，当我们需要多个字符的时候，通过**重复**来解决。
+
+**重复**
+
+如\d{3} , 3个数字
+
+具体示例
+
+![正则表达式二](./reg_2.png)
+
+这个例子是django在做admin后台的时候，有一个插件需要我们做url转换。为了能转换成功，我们需要两个工具。第一个转义符号 : \ 。用于取消元字符的特殊含义。比如刚才提到的元字符有个点 . 如果还想使用这个元字符的话就需要将其转义。
+
+第二个分组与取值 : () 。比如要提取原url中的5.jpg， 就可以用小括号。
+
+可以使用pcretest工具对所写的正则表达式进行验证。但通过`yum -y install pcre pcre-devel`安装是没有这个工具的，可以通过源码编译安装的方式获取该工具。
+
+```bash
+# pcretest
+re>/^\/admin\/website\/article\/(\d+)\/change\/uploads\/(\w+)\/(\w+)\.(png|jpg|gif|jpeg|b
+mp)$/
+data>/admin/website/article/35/change/uploads/party/5.jpg
+ 0:/admin/website/article/35/change/uploads/party/5.jpg
+ 1:35
+ 2:party
+ 3:5
+ 4:jpg
+data>
+```
+
+正则表达式在Nginx或者说在HTTP服务中都是广泛使用的，掌握正则表达式对server_name, location, rewrite配置的时候非常有帮助。
+
 ## 4.6 如何找到处理请求的server指令块
+
+在Nginx 的HTTP模块处理请求前，我们需要确保它的指令被正确的解析出来了，也就是说我们知道为了处理这个请求到底使用哪个指令的值。因为前面提到指令的配置可以出现在http下，也可以出现在server下，也可以出现在location块下。这里首先必须确保这个请求是被哪一个server块处理。配置指令`server_name`它可以保证我们在处理11个阶段的HTTP模块处理之前先决定那个server块指令被使用。
+
+`server_name`指令配置详解如下：
+
+![](./server_name.png)
+
+server_name指令后可以跟三种域名：
+
+第一种：指令后简单的跟一个明确的域名，一个字符串，当然后面可以写多个域名。
+
+第二种：泛域名。仅支持在最前或最后， 如`server_name *.taohui.tech`
+
+第三种：正则表达式，加～前缀。如`server_name www.taohui.tech ~^www\d+\.taohui\.tech$;`
+
+这里有个概念叫主域名，主域名有什么用呢？当我们跟多个域名的时候，前面那个就是主域名。这里有一个控制主域名的配置`server_name_in_redirect on|off;`默认是off.那如何使用呢？看如下配置：
+
+```bash
+# cat servername_test.conf
+server {
+    server_name primary.taohui.tech  second.taohui.tech; # 前面的是主域名
+    server_name_in_redirect off; # off的时候，主域名是不生效的
+    return 302 /redirect;
+}
+```
+
+```bash
+# curl -I second.taohui.tech
+HTTP/1.1 302 Moved Temporarily
+Server: openresty/1.13.6.2
+Date: Sat, 24 Nov 2018 02:30:50 GMT
+Content-Type: text/html
+Content-Length: 167
+Location: http://second.taohui.tech/redirect
+Connection: keep-alive
+```
+
+返回的location是用second.taohui.tech拼接的。如果想用primary.taohui.tech拼接，就需要将server_name_in_redirect配置为on。
+
+当server_name指令后跟正则表达式的时候，正则表达式可以帮我们创建新的变量：用小括号() 分组提取。
 
 ## 4.7 详解HTTP请求的11个阶段
 
