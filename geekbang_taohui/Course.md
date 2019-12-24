@@ -1611,9 +1611,99 @@ Connection: keep-alive
 
 当server_name指令后跟正则表达式的时候，正则表达式可以帮我们创建新的变量：用小括号() 分组提取。
 
+![](./server_name2.png)
+
+比如用server_name去取一个www开头的一个域名，那么想去使用它的时候呢，可以在下面的location中去使用，比如location 有一个配置叫 `{/root/site/$2;}`, `$2`就是取server_name后生成的两个变量中的第二个变量。
+
+上面生成的变量只能用$1 $2的方式使用，如果生成的变量很多，则可以用命名变量的方式。如：
+
+`server_name ~^(www\\.)?(?<domain>.+)$;`
+
+`location / {/root/site/$doamin;}`
+
+`?<domain>`这种写法就是定义了一个名为domain的变量
+
+其他用法：
+
+- .taohui.tech可以匹配taohui.tech  *.taohui.tech
+- _  匹配所有
+- "" 匹配没有传递Host头部
+
+server_name间的匹配顺序如下：
+
+![](./server_match_order.png)
+
+nginx 配置中会处理很多域名，有些是有泛域名的，有的是有一个明确的字符串域名，有些会使用正则表达式。当所有域名都不匹配的时候怎么选择呢？
+
+首先会做精确匹配，就是如果server_name中明确写了一个不含有泛域名，不含有正则表达式的域名，会优先匹配。此时更Nginx出现的顺序是无关的。
+
+第二，先处理*在前的泛域名, 与在文件中的顺序无关
+
+第三，取*在后的泛域名，与文件中的顺序无关
+
+第四，按正则表达式取。如果多个正则表达式都匹配到，则按在文件中的顺序
+
+第五，如果与上面的域名都匹配不上，将使用default server块处理，以保证后面11个阶段各个http模块可以找到在server指令下的一个指令值。这个server就叫default server。它有两种指令方式：第一种当没有明确指定的时候，我们按顺序来，就是所有的server {} 模块，第一就是我们的default server.
+
+第二种指令方式：listen指令的时候，后面可以带一个参数，叫default. 当listen后面带default的时候，这个listen所属的server 块就变成default server。
+
+小结：当Nginx的框架取到了用户请求中的host这个头部的值的时候，我们就可以用这个值与server块下的server_name指令的参数进行匹配。按照响应的顺序，匹配到一个server块后，这个server块下的所有HTTP模块的指令就可以使用了。
+
 ## 4.7 详解HTTP请求的11个阶段
 
+除http过滤模块和只提供变量的Nginx模块之外，所有的http模块必须从Nginx定义好的11个阶段进行http处理，所以每个HTTP它何时生效，它有没有机会生效都要看一个请求究竟处理到那个阶段。HTTP请求处理时的11个阶段如下图所示：
+
+![](./11_stage.png)
+
+先看上图中左边的图，是一个示意图，但非常方便我们去理解一个请求在Nginx怎么被处理的。
+
+当一个请求进入我们黄色的框，也就是Nginx中的时候，首先read request headers，也就是我们读取到请求的头部。并且决定使用哪个server块上的指令去处理这个请求。也就是上面几次课提到的内容。然后去寻找哪个location是生效了，也就是configuration block. 然后再去决定是否要对它进行限速。接下来会做一下验证，比如根据referer等字段去判断是否是个盗链的请求或者用auth_basic这样的协议验证一下用户请求的权限。这些验证过程通过以后呢，我要生成返回给用户的响应，也就是generate content, content 就是我们的内容。为了生成这个响应呢，可能我要作为反向代理的时候呢，我要和上游，其他的服务器或进程进行通信。当把他们转发给我的作为我生成的内容。以上这四步过程中呢，我可能经常会产生一些子请求或重定向，这个时候又会重新走一下这个过程。
+
+上面的示意图中，在给用户返回请求的 时候要经过过滤模块，过滤模块比如说gzip对于我们返回的这样一些没有压缩的内容做一下压缩，或对图片缩略图做一些处理。处理完在发送给用户的时候呢，也会记录一条access日志。
+
+左边是示意图，那实际的流程是怎样的呢？
+
+POST_READ: read到header所有的请求的头部，未进行任何加工之前，我想获取一些原始的值，这样的一些模块就应在post_read出现，如realip
+
+SERVER_REWRITE: 它与下面提到的REWRITE阶段一样，一般只有一个模块，rewrite。一般不会出现第三方模块
+
+FIND_CONFIG: 只有Nginx框架会做，这个阶段也是没有任何http模块在这个阶段中。它是做location的一个匹配。
+
+REWRITE： rewrite
+
+POST_REWRITE: 刚刚rewrite之后需要做的一些事情。
+
+接下来是access相关的三个模块，用于确定访问权限。但为什么要用三个模块呢？因为access核心解决的是能不能访问？比如auth_basic，根据用户名密码。access,根据IP。auth_request根据第三方的服务返回的是否可以访问。
+
+PREACCESS：就是在access之前做一些工作，比如根据limit_con判断连接并发数是否达到；或根据limit_req每秒请求数达到了。只是限制速度并不是客户端不能访问了。
+
+POST_ACCESS: 就是在access之后要做一些事情，第三部分课程没有模块涉及到。
+
+PRECONTENT: 就是在处理content之前，比如说mirrors， try_files
+
+CONTENT: index, autoindex, concat,反向代理都是在content阶段生效的
+
+LOG： 打印access日志
+
+所有的请求都必须从上到下一个阶段一个阶段一直向下进行。我们在DEBUG日志中也可以非常清晰的看到。
+
+当Nginx接受完用户请求的header的时候就会按这11个阶段的顺序依次的调用每个阶段中的HTTP模块处理这个请求。没个阶段中可能会有多个HTTP模块，他们的处理顺序也很重要。
+
 ## 4.8 11个阶段的顺序处理
+
+当一个HTTP请求进入Nginx这个11个阶段时，由于每个阶段都可能有0个或多个http模块。如果某一个模块不在把请求向下传递，那后面的模块是得不到执行的。那么同一个阶段中的多个模块也不一定每个模块都有机会执行到。可能有模块把请求传递给下一个阶段中的模块去处理。11个阶段的处理顺序如下：
+
+![](./order_process.png)
+
+上面左边的图列出的蓝色的http模块中，在本部分课程中都会介绍到。这里每一个模块都属于某个阶段，每个阶段之间这些模块是有序的。这个顺序如何得到呢？通过`ngx_modules.c`, 也就是config执行完以后。通过with 或without添加或移除的模块都会出现在ngx_module_name数组中。
+
+根据上图中左边的图，模块的顺序是非常重要的。比如limit_req先于limit_conn返回给用户结果，所以limit_conn可能没有机会执行。在比如前面的例子，配置了autoindex，但还是没有显示目录结构，这是因为Index在其前先生效。
+
+灰色的模块部分由Nginx框架执行，其他模块没有机会在那里执行。
+
+在依次向下执行的过程中也可能不按照这个顺序，比如access满足了，直接跳到tru_files, 而不会执行auth_basic, auth_request. 又如当content中的Index执行了，会直接跳到log阶段，而不会去执行autoindex, static .
+
+接下来在介绍http模块时，会先介绍它属于那个阶段，是怎样生效的。
 
 ## 4.9 postread阶段：获取真是客户端地址的realip模块
 
