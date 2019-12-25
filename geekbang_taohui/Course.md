@@ -1705,7 +1705,74 @@ LOG： 打印access日志
 
 接下来在介绍http模块时，会先介绍它属于那个阶段，是怎样生效的。
 
-## 4.9 postread阶段：获取真是客户端地址的realip模块
+## 4.9 postread阶段：获取真实客户端地址的realip模块
+
+postread阶段中的一个模块叫realip模块，它可以帮助我们发现用户的真实IP地址，这为后续的一些模块比如限速，限流等功能提供了可能性。
+
+问题：如何拿到真实的用户IP地址？
+
+![](./realip.png)
+
+针对上面的问题，首先是：
+
+1. tcp四元组(src ip, src port, dst ip, dst port). 根据一条连接的source IP就能判断用户IP。但是因为网络中存在反向代理，而反向代理会导致代理与上游的机器又建立了一个新的tcp连接，所以上游服务器想通过tcp连接中的src ip是没办法拿到原始的用户IP地址的。如上图中右边用户的例子，用户内网-运营商公网-CDN加速-反向代理-Nginx。而我们想拿到的是用户的运营商的公网IP地址进行限速的，而不是其内网 的192.168.0.x 。
+2. 所以要想拿到，通过HTTP头部中的X-Forwarded-For 和X-Real-IP来实现。X-Forwarded-For用于传递IP，比如CDN这里的IP是1.1.1.1 ， 它又从新建立了一个新的连接给反向代理，反向代理收到的header中可能会存在X-Forwarded-For: 115.204.33.1 X-Real-IP:115.204.33.1 这样两个header，这两个header是CDN添加的。X-Real-IP只能填一个IP，比如用户的真实IP，而X-Forwarded-For是累加的，比如当反向代理拿到了X-Forwarded-For，是115.204.33.1。那么反向代理在往后端服务如Nginx发的时候会担心后面的服务不知道CDN的地址是什么，因为直接跟反向代理 连接的是CND的地址，所以反向代理把CND的地址1.1.1.1放到X-Forwarded-For中，以逗号分割，变成X-Forwarded-For:115.204.33.1,1.1.1.1的形式。这样通过一层一层X-Forwarded-For把对端的客户端的地址携带进来以后，我们 的Nginx就有可能通过X-Forwarded-For或 X-Real-IP获取到客户端的原始的IP地址。
+
+拿到这个地址以后应该如何使用呢？Nginx提供了基于变量来使用的方式。
+
+![](./use_realip.png)
+
+根据在realip中配置的指令，realip模块会把X-Forwarded-For 或X-Real-IP头部中的值覆盖binary_remote_addr, remote_addr这两个变量的值。也就是说这两个变量的值原先指向的是直接跟Nginx产生连接的客户端的地址，但警告realip模块以后呢，就会把binary_remote_addr, remote_addr改成X-Forwarded-For等里面头部的值，这样我们后续的模块做连接的限制，限速才有意义。所以我们就可以理解limit_conn模块一定在preaccess阶段，不能在postread阶段，道理就在这里。
+
+![](./realip_module.png)
+
+realip模块默认是不会便已经Nginx的，我们必须通过config --with-http_realip_module来启用这个功能，所以我们通常通过下载Nginx源代码才能做这样的功能。它的功能是修改我们客户端的地址，它还会新生成两个变量：realip_remote_addr, realip_remote_port。因为它改掉了原来的remote_addr, remote_port，所以用新生成的两个变量去维护原来的变量。就是说如果我们还想去使用原先的remote_addr，应该加上realip，也就是realip_remote_addr，你就可以拿到tcp连接中的src ip了。
+
+它还提供了三个指令，使用详情如下：
+
+![](./realip_cmd.png)
+
+- set_real_ip_from 我们的Nginx可能处理某个反向代理如SLB或CDN发过来的请求，这样一台机器其实是我们可控的，也就是它是属于我的整个集群环境的一台或几台。还有一种情况，我的Nginx可能直接处理用户发来的IP。只有当我是从CND或从我们某一个内网的服务过来的时候呢，这样的一个IP地址，我认为它是可信的。所以我从头他们发过来的X-Forwarded-For里面去取用户真正的IP。所以这个指令定义的就是，对于什么样tcp连接src IP，我才做替换remote_addr变量这样一件事。
+
+- real_ip_header 我们到底是从X-Forwarded-For 或X-Real-IP或proxy_protocol中的哪个取。默认是从X-Real-IP中来去的，因为X-Forwarded-For有多个IP地址，它会从最后的一个IP地址去取。
+
+- real_ip_recursive 环回地址，默认是关闭的。如果设置为on，它会把X-Forwarded-For里面最后的地址如果与客户端地址是相同的话，会把它pass掉，去取上一个地址。实例如下：
+
+  ```nginx
+  # vim realip.conf
+  server {
+      server_name realip.taohui.tech;
+      
+      error_log logs/myerror.log debug;
+      set_real_ip_from 116.62.160.193; # 本机的地址，所以没有跨服务器，把本机设为可信地址，如果是从本机连过来的，就会做接下来的操作
+      #real_ip_header X-Real-IP;
+      real_ip_recursive off;
+      #real_ip_recursive on;
+      real_ip_header X-Forwarded-For;
+      
+      location / {
+          return 200 "Client real ip : $remote_addr\n";
+      }
+  }
+  ```
+
+  realip.conf已经include到nginx.conf中，然后测试：
+
+  ```bash
+  # curl -H 'X-Forwarded-For: 1.1.1.1,116.62.160.193' realip.taohui.tech
+  Client real ip: 116.62.160.193
+  ```
+
+  开启环回地址，即将real_ip_recursive 设置为on, reload , 再次测试：
+
+  ```bash
+  # curl -H 'X-Forwarded-For: 1.1.1.1,116.62.160.193' realip.taohui.tech
+  Client real ip: 1.1.1.1
+  ```
+
+  因为X-Forwarded-For中的最后一个IP地址与客户端的地址相同，所以将其pass掉，取前一个地址，即1.1.1.1 。接下来这个变量就可以进行做限速等处理了。
+
+  postread中的realip模块可以拿到未经任何加工的X-Forwarded-For或X-Real-IP中的用户的地址，因为我们后续的很多模块回去修改X-Forwarded-For等头部的值，那么根据X-Real-IP中的值，我们修改了remote_addr或binary_remote_addr这些变量的值，这些变量就可以为后续的HTTP模块服务了。
 
 ## 4.10 rewirte阶段的rewrite模块：return指令
 
