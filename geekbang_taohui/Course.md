@@ -1776,39 +1776,156 @@ realip模块默认是不会便已经Nginx的，我们必须通过config --with-h
 
 ## 4.10 rewirte阶段的rewrite模块：return指令
 
+http的rewrite模块提供了return指令。根据前面的11个阶段的顺序处理，return指令有rewrite模块提供，会在rewrite server阶段做一次生效，在find_config阶段之后还有一个rewrite阶段，return指令也会在这里做一次生效。return指令生效后，其后的所有http模块是没有机会执行的。return指令的用法如下图：
+
+![](./return.png)
+
+return指令后可以跟三类不同的语法：
+
+1.  return code [text] - code , 状态码，如200； text，可选，body中的内容
+2. return code URL - 用于重定向。在重定向的时候，如http 1.0 可以返回301 302. 常用的重定向状态码，302， 临时重定向，禁止被缓存。是用来告诉浏览器应该怎么处理我返回的location，返回302的时候，浏览器不会对本次行为进行重定向的，也就是说它本来要访问网站A，但我们给它的是一个新的url  B，它不会做重定向。那么下次它要访问资源的时候还是会访问A，我们再给它重定向到B，它再访问B的结果。但是改为301就不一样了，所有的浏览器遇到301这样一个请求的时候，这叫永久重定向，它会记录到自己的缓存中。比如我们A的网站都已经挂掉了，它再去访问A的资源的时候，它还是能够拿到结果，因为它把这个行为认为是永久的了，所以只要遇到访问A的站点，它压根不会去访问A了，它直接去访问B了，因为你们曾经告诉我只要访问A一定会拿到B的重定向，所以它不会访问A的资源。那么HTTP 1.1标准又提供了303,307,308 。它们又有什么差别呢？我们主要从两个方面考虑就可以了，因为http 1.0中没有明显的告诉是否可以改变方法，也就是说我可能访问的是一个post方法，但重定向比如改成了get，或head等其他方法。
+3. return URL - 直接使用302重定向
+
+返回的状态码大部分都是返回给客户端的，但有一个是收不到的，比如444，是Nginx自定义的，return 444表示Nginx立刻关闭连接，不在项用户返回任何的内容。
+
+我们经常还会用到error_page, 它与return其实有一些关联。
+
+![](./error_page.png)
+
+
+
+error_page表示我们收到某一个返回码的时候，我可以重定向为另外一个URI，也可以指定给用户返回不一样的内容，比如当我们收到一个404的返回码，比如用户访问一个文件，但这个文件不存在，如果是默认的话就是一个404，但是很多网站需要给用户比较好的体验，可能会返回一张图片或者一些独立的页面，这个页面提示的比较友好，告诉用户虽然404了，但是你可以有一些其他的方法来获取你想要的响应。
+
+@符号是一个内部的跳转
+
+我们的问题是当我们出现了return的时候，error_page 404还有机会执行吗？
+
+![](./return_error_page.png)
+
+第二问题是return指令同时出现在server块下和同时出现在location块下，他们还有合并的关系吗？示例如下：
+
+```nginx
+server {
+    server_name return.taohui.tech;
+    listen 80;
+    
+    root html/;
+    error_page 404 /403.html;
+    #return 405;
+    location / {
+        #return 404 "find nothing !\n";
+    }
+}
+```
+
+测试，故意访问不存在的文件：
+
+```bash
+# curl return.taohui.tech:8080/aaa.txt
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+<p>test 403 forbidden!
+</p>
+</body>
+</html>
+```
+
+返回的是我们定义的那个403的页面。如果修改配置，将location中return的注释去掉，然后reload，再次测试：
+
+```bash
+# curl return.taohui.tech:8080/aaa.txt
+find nothing!
+```
+
+可以看到error_page得不到执行。
+
+然后看下一种情况，将server下的return 405注释去掉。根据之前的11个阶段，return 405是server rewrite阶段的return。所以可以遇见此时会返回405，而location中的return属于location rewrite阶段。所以得不到执行。
+
+```bash
+# curl return.taohui.tech:8080/aaa.txt
+<html>
+<head><title>405 Not Allowed</title></head>
+<body bgcolor="white">
+<center><h1>405 Not Allowed</h1></center>
+<hr><center>openresty/1.13.6.2</center>
+</body>
+</html>
+```
+
+return 指令是rewrite模块提供的一个非常常用的指令，它可以帮助我们做重定向和一些简单的返回。
+
+
+
 ## 4.11 rewirte阶段的rewrite模块：重写URL
+
+
 
 ## 4.12 rewirte阶段的rewrite模块：条件判断
 
+
+
 ## 4.13 find_config阶段：找到处理请求的location指令块
+
+
 
 ## 4.14 preaccess阶段：对连接做限制的limit_conn模块
 
+
+
 ## 4.15 preaccess阶段：对请求做限制的limit_req模块
+
+
 
 ## 4.16 access阶段：对IP做限制的access模块
 
+
+
 ## 4.17 access阶段：对用户名密码做限制的auth_basic模块
+
+
 
 ## 4.18 access阶段：使用第三方做权限控制的auth_request模块
 
+
+
 ## 4.19 access阶段的satisfy指令
+
+
 
 ## 4.20 precontent阶段：按序访问资源的try_files模块
 
+
+
 ## 4.21 实时拷贝流量：precontent阶段的mirror模块
+
+
 
 ## 4.22 content阶段：详解root和alias指令
 
+
+
 ## 4.23 static模块提供的3个变量
+
+
 
 ## 4.24 static模块对URL不以斜杠结尾却访问目录的做法
 
+
+
 ## 4.25 index和autoindex模块的用法
+
+
 
 ## 4.26 提升多个小文件性能的concat模块
 
+
+
 ## 4.27 access日志的详细用法
+
+
 
 ## 4.28 HTTP过滤模块的调用流程
 
