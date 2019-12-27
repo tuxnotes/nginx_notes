@@ -1857,15 +1857,87 @@ find nothing!
 
 return 指令是rewrite模块提供的一个非常常用的指令，它可以帮助我们做重定向和一些简单的返回。
 
-
-
 ## 4.11 rewirte阶段的rewrite模块：重写URL
 
+rewrite模块的rewrite指令用于修改用户传入Nginx中的url。语法如下：
 
+```
+Syntax:    rewrite regex replacement [flag];
+Default:   ——
+Context:   server, location, if
+```
+
+功能：
+
+- 将regex指定的url(用户的url)替换成relacement这个新的url--可以使用正则表达式及变量提取
+- 当replacement以http://或https://或$schema开头，则直接返回302重定向
+- 替换后的url根据flag指定的方式处理，flag可以取以下四个不同的值：
+  - last：用replacement这个URI进行新的location匹配
+  - break：break指令停止当前脚本指令的执行，等价于独立的break指令。REWRITE模块提供的所有指令都是脚本指令
+  - redirect：返回302重定向
+  - permanent：返回301重定向
+
+rewrite指令示例一：
+
+![](./rewrite_exam1.png)
+
+rewrite指令示例二：
+
+![](rewrite_exam2.png)
+
+**rewrite行为进入error日志**
+
+```
+Syntax: rewrite_log on | off;
+Default: rewrite_log off;
+Context: http, server, location, if
+```
 
 ## 4.12 rewirte阶段的rewrite模块：条件判断
 
+rewrite模块的if指令可以根据请求中的变量的值，判断变量的值是否满足某个条件后再执行if块下面的指令。根据这些指令再调影响的模块去处理请求。处于server rewrite或rewrite阶段。语法如下：
 
+```bash
+Syntax: if (condition) { ... }
+Default: —
+Context: server, location
+```
+
+**规则**：条件condition为真，则执行大括号内的指令；遵循值指令的继承规则
+
+**if指令的条件表达式**
+
+1. 检查变量为空或值为0，直接使用
+2. 将变量与字符串做匹配，使用=或!=
+3. 将变量与正则表达式做匹配
+   - 大小写敏感,  ~或!~
+   - 大小不写敏感,  ~\*或!~\*
+4. 检查文件是否存在，使用-f或!-f
+5. 检查目录是否存在，使用-d或!-d
+6. 检查文件、目录、软连接是否存在，使用-e或!-e
+7. 检查是否为可执行文件，使用-x或!-x
+
+if指令示例：
+
+```nginx
+if ($http_user_agent ~ MSIE) { # $http_user_agent,nginx提供的变量可取到agent字段，此处判断是否是IE浏览器
+	rewrite ^(.*)$ /msie/$1 break;
+}
+if ($http_cookie ~* "id=([^;]+)(?:;|$)") { # 从请求的cookie中取出id的值再处理
+	set $id $1;
+}
+if ($request_method = POST) { # 对变量做字符串的完全的匹配，如果是post请求，返回405，表示不允许post请求
+	return 405;
+}
+if ($slow) {
+	limit_rate 10k;
+}
+if ($invalid_referer) { # 判断是否是盗链的请求，如果是返回403去组织
+	return 403;
+}
+```
+
+if指令带来了逻辑判断的功能，这个功能在很多模块都会使用到。
 
 ## 4.13 find_config阶段：找到处理请求的location指令块
 
