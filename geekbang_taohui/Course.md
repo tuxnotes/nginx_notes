@@ -1941,7 +1941,129 @@ if指令带来了逻辑判断的功能，这个功能在很多模块都会使用
 
 ## 4.13 find_config阶段：找到处理请求的location指令块
 
+当我们在server块下的rewrite系列指令执行完毕以后，开始根据用户请求中的url，去location后面对应的url前缀或正则表达式进行匹配，这步匹配完之后就确定了由哪一个location进行对这个请求处理。
 
+在11个阶段中，进入find_config阶段，开始处理选择哪个location处理请求。location语法如下：
+
+```nginx
+Syntax:
+	location [ = | ~ | ~* | ^~ ] uri { ... }
+	location @name { ... }
+Default: —
+Context: server, location
+
+Syntax: merge_slashes on | off;
+Default: merge_slashes on;
+Context: http, server
+```
+
+merge_slashes合并url中的斜杠。两个连续的斜杠会合并成一个。默认是打开的。
+
+当url中可能直接使用了base64编码等情况下，是需要关闭的。
+
+**location匹配规则：仅匹配URI，忽略参数**
+
+1. 前缀字符串
+   - 常规
+   - =: 精确匹配
+   - ^~: 匹配上后则不再进行正则表达式匹配
+2. 正则表达式
+   - ~: 大小写敏感的正则匹配
+   - ~*: 忽略大小写的正则匹配
+3. 用于内部跳转的命名location
+   - @
+4. 合并连续的斜杠/符号
+   - merge_slashes on
+
+**问题**
+
+对于以下URL会返回什么内容？
+
+```nginx
+/Test1
+/Test1/
+/Test1/Test2
+/Test1/Test2/
+/test1/Test2
+```
+
+对于如下的Nginx配置
+
+```bash
+location ~ /Test1/$ {
+	return 200 'first regular expressions match!';
+}
+location ~* /Test1/(\w+)$ {
+	return 200 'longest regular expressions match!';
+}
+location ^~ /Test1/ {
+	return 200 'stop regular expressions match!';
+}
+location /Test1/Test2 {
+	return 200 'longest prefix string match!';
+}
+location /Test1 {
+	return 200 'prefix string match!';
+}
+location = /Test1 {
+	return 200 'exact match!';
+}
+```
+
+为了回答上面的问题，需要先了解location的匹配顺序，如下图所示：
+
+![](./location.png)
+
+具体配置如下, locations.conf：
+
+```nginx
+server {
+	server_name location.taohui.tech;
+	error_log  logs/error.log  debug;
+	#root html/;
+	default_type text/plain;
+	merge_slashes off;
+	
+	location ~ /Test1/$ {
+		return 200 'first regular expressions match!\n';
+	}
+
+	location ~* /Test1/(\w+)$ {
+		return 200 'longest regular expressions match!\n';
+	}
+
+	location ^~ /Test1/ {
+		return 200 'stop regular expressions match!\n';
+	}
+
+        location /Test1/Test2 {
+                return 200 'longest prefix string match!\n';
+        }
+
+        location /Test1 {
+                return 200 'prefix string match!\n';
+        }
+
+
+	location = /Test1 {
+		return 200 'exact match!\n';
+	}
+
+}
+```
+
+reload之后，进行访问测试：
+
+```bash
+# curl location.taohui.tech/Test1
+exact match!
+# curl location.taohui.tech/Test1/
+stop regular expressions match!
+# curl location.taohui.tech/Test1/Test2
+longest regular expressions match!
+# curl location.taohui.tech/Test1/Test2/
+longest prefix string match!
+```
 
 ## 4.14 preaccess阶段：对连接做限制的limit_conn模块
 
