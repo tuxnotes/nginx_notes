@@ -2067,7 +2067,80 @@ longest prefix string match!
 
 ## 4.14 preaccess阶段：对连接做限制的limit_conn模块
 
+preaccess阶段的limit_conn用于限制用户并发连接数。在找到location块以后，接下来的模块往往都可以出现在location块中。
 
+**ngx_htp_limit_conn_module模块**
+
+- 生效阶段：NGX_HTTP_PREACCESS_PHASE阶段
+- 模块：http_limit_conn_module
+- 默认便已经Nginx，通过-without-http_limit_conn_module禁用
+- 生效范围
+  - 全部worker进程(基于共享内存)，使用了zone指令，所有Nginx的zone指令都是使用共享内存
+  - 进入preaccess前不生效
+  - 限制的有效性取决于key的设计：依赖postread阶段的realip模块取到的真实IP
+
+**limit_conn指令**
+
+使用步骤：
+
+1. 定义共享内存(包括大小)，以及key关键字
+
+   ```nginx
+   Syntax: limit_conn_zone key zone=name:size;# key一般取realip;
+   Default: —
+   Context: http
+   ```
+
+2. 限制并发连接数
+
+   ```nginx
+   Syntax: limit_conn zone number;# number限制的并发连接数
+   Default: —
+   Context: http, server, location
+   ```
+
+limit_conn还有两个指令：
+
+限制发生时的日志级别
+
+```nginx
+Syntax: limit_conn_log_level info | notice | warn | error;
+Default: limit_conn_log_level error;
+Context: http, server, location
+```
+
+限制发生时向客户端返回的错误码
+
+```nginx
+Syntax: limit_conn_status code;
+Default: limit_conn_status 503;
+Context: http, server, location
+```
+
+具体配置示例如下：
+
+```bash
+# vim limit_conn.conf
+limit_conn_zone $binary_remote_addr zone=addr:10m;
+#limit_req_zone $binary_remote_addr zone=one:10m rate=2r/m;
+
+server {
+	server_name limit.taohui.tech;
+	root html/;
+	error_log logs/myerror.log info;
+	
+	location /{
+		limit_conn_status 500;
+		limit_conn_log_level  warn;
+		limit_rate 50;
+		limit_conn addr 1;
+		#limit_req zone=one burst=3 nodelay;
+		#limit_req zone=one;
+	}
+}
+```
+
+小结：当Nginx作为资源服务器为用户提供使用时，限制用户能同时发起的并发连接数，是一个非常常用的功能，而Nginx默认编译进的limit_conn为我们提供了这样一种功能。设计好key是一个关键。
 
 ## 4.15 preaccess阶段：对请求做限制的limit_req模块
 
