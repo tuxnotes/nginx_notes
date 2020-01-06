@@ -2144,7 +2144,95 @@ server {
 
 ## 4.15 preaccess阶段：对请求做限制的limit_req模块
 
+limit_req模块可以限制一个连接上每秒处理的请求数。
 
+问题：如何限制每个客户端的每秒处理请求数？
+
+**ngx_http_limit_req_module模块**
+
+- 生效阶段：NGX_HTTP_PREACCESS_PHASE阶段
+- 模块：http_limit_req_module
+- 默认编译进Nginx，通过--without-http_limit_req_module禁用功能
+- 生效算法：leaky bucket算法
+- 生效范围：
+  - 全部worker进程(基于共享内存)
+  - 进入preaccess阶段前不生效
+
+leaky bucket算法将突发性的流量处理为每秒恒定的流量，如下图所示：
+
+![](leaky_bucket.png)
+
+**limit_req指令**
+
+使用步骤
+
+- 定义共享内存(包括大小)，以及key关键字和限制速率
+
+  ```nginx
+  Syntax: limit_req_zone key zone=name:size rate=rate ; # rate单位为r/s或r/m
+  Default: —
+  Context: http
+  ```
+
+- 限制并发连接数
+
+  ```nginx
+  Syntax: limit_req zone=name [burst=number] [nodelay];
+  Default: —
+  Context: http, server, location
+  ```
+
+  burst默认为0，上图中盆的大小，能容纳多少个请求
+
+  nodelay, 对burst中的请求不在采用演示处理的做法，而是立刻处理
+
+- 限制发生时的日志级别
+
+  ```nginx
+  Syntax: limit_req_log_level info | notice | warn | error;
+  Default: limit_req_log_level error;
+  Context: http, server, location
+  ```
+
+- 限制发生时向客户端返回的错误码
+
+  ```nginx
+  Syntax: limit_red_status code;
+  Default: limit_red_status 503;
+  Context: http, server, location
+  ```
+
+问题
+
+- limit_req与limit_conn配置同时生效时，哪个有效？
+- nodelay添加与否，有什么不同？
+
+```bash
+# cat limit_conn.conf
+limit_conn_zone $binary_remote_addr zone=addr:10m;
+limit_req_zone $binary_remote_addr zone=one:10m rate=2r/m;
+
+server {
+	server_name limit.taohui.tech;
+	root html/;
+	error_log logs/myerror.log info;
+	
+	location /{
+		limit_conn_status 500;
+		limit_conn_log_level  warn;
+		#limit_rate 50;
+		#limit_conn addr 1;
+		#limit_req zone=one burst=3 nodelay;
+		limit_req zone=one;
+	}
+}
+```
+
+在上面的配置下，reload, 然后curl limit.taohui.tech  , 返回503
+
+当配置加上burst后，即将burst那行配置的注释去掉，再次reload测试。三次后出现503
+
+当limit_req在limit_conn前，如果两配置同时生效，则limit_conn就没有机会执行了。
 
 ## 4.16 access阶段：对IP做限制的access模块
 
