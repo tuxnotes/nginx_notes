@@ -2236,13 +2236,122 @@ server {
 
 ## 4.16 access阶段：对IP做限制的access模块
 
+access模块可以控制哪些IP可以访问url，哪些IP不可以访问url。access模块是access阶段的第一个模块。
 
+**ngx_http_access_module模块**
+
+- 生效阶段：NGX_HTTP_ACCESS_PHASE
+- 模块：http_access_module
+- 默认编译进Nginx，通过--without-http_access_module功能禁用
+- 生效范围：进入access阶段前不生效。也就是说我们虽然deny了某些地址，对某些IP做限制了，但是我们的limit_req和limit_conn还是照样会生效的。
+
+access模块提供两条指令：allow , deny
+
+```nginx
+Syntax: allow address | CIDR | unix: | all;
+Default: —
+Context: http, server, location, limit_except
+
+Syntax: deny address | CIDR | unix: | all;
+Default: —
+Context: http, server, location, limit_except
+```
+
+示例
+
+```nginx
+location / {
+	deny 192.168.1.1;
+	allow 192.168.1.0/24;
+    allow 10.1.1.0/16;
+    allow 2001:0db8::/32;
+    deny all;
+}
+```
+
+上面的配置是顺序执行的，即当满足了其中一条就不会再向下执行了。
+
+access是非常简单的控制用户访问的方法，对于我们在内网允许相应企业服务访问我们的Nginx是非常有用的。
 
 ## 4.17 access阶段：对用户名密码做限制的auth_basic模块
 
+auth_basic可以校验用户名和密码是否匹配来决定是否拒绝访问。auth_basic模块使用了RFC2617: HTTP Basic Authentication定义的协议。如下图
 
+![](basic_auth.png)
+
+当我们的客户端访问Nginx的时候，也就是说浏览器访问Nginx的时候，大概流程如下：
+
+比如访问一个url，此时Nginx会首先返回一个401，这个401在客户端不会被显示，因为注明了使用了`WWW-Authenticate: Basic realm="test auth_basic"\r\n`这样一个协议，所以到了客户端的时候，浏览器就会弹出一个对话框，让我们输入用户名和密码。比如用户名是user，密码是password，此时浏览器会把我们的用户名和密码以明文的方式发送给我们的Nginx。所以这里的协议本身是不保证安全性 的。当然如果我们使用了https进行加密就没有问题了。
+
+**auth_basic模块的指令**
+
+- 功能：基于HTTP Basic Authutication协议进行用户名密码的认证。默认编译进Nginx，通过--without-http_auth_basic_module禁用功能
+
+- 指令
+
+  ```nginx
+  Syntax: auth_basic string | off; # string给用户浏览器title中显示的string
+  Default: auth_basic off;
+  Context: http, server, location, limit_except
+  
+  Syntax: auth_basic_user_file file; # 存放用户名密码配置的文件
+  Default: —
+  Context: http, server, location, limit_except
+  ```
+
+**生成密码文件**
+
+![](gen_password.png)
+
+那如何生成刚刚那个file所需的文件格式呢？可以通过Apache里的工具包httpd-tools。此工具包可提供一个命令行:
+
+```bash
+# htpasswd -c file -b user pass
+```
+
+文件内容格式如下：
+
+```bash
+# comment
+name1:password1
+name2:password2:comment
+name3:password3
+```
+
+文件中的密码会进行一个简单的base64的编码，示例配置如下：
+
+```nginx
+# cat access.conf
+server {
+	server_name access.taohui.tech;
+	error_log  logs/error.log  debug;
+	#root html/;
+	default_type text/plain;
+	location /auth_basic {
+		satisfy any;
+		auth_basic "test auth_basic";
+		auth_basic_user_file examples/auth.pass;
+		deny all;
+	}
+
+	location / {
+		auth_request /test_auth;
+	}
+
+	location = /test_auth {
+		proxy_pass http://127.0.0.1:8090/auth_upstream;
+		proxy_pass_request_body off;
+    		proxy_set_header Content-Length "";
+    		proxy_set_header X-Original-URI $request_uri;
+	}
+}
+```
+
+当我们提供一个简单的页面服务时，我们想对它进行页面保护，使用auth_basic是一个非常快捷的方法。
 
 ## 4.18 access阶段：使用第三方做权限控制的auth_request模块
+
+
 
 
 
