@@ -2351,13 +2351,122 @@ server {
 
 ## 4.18 access阶段：使用第三方做权限控制的auth_request模块
 
+无论是通过access模块限制IP，还是通过auth_basic限制用户名密码，这都是非常简单的限制方式。我们的生成环境中很可能有一个动态web服务器或相应的一些应用服务器，它们提供更复杂的用户名密码权限验证，这个时候我们可以通过访问Nginx的资源时，先把请求传递给这样的应用服务器上，根据应用服务器返回的结果再判断这个请求资源能不能继续执行。Nginx的access阶段有一个叫auth_request的模块，它就可以完成这样的功能。
 
+**统一的用户权限验证系统**
 
+auth_request模块
 
+- 功能：向上游服务转发请求，若上游服务返回到响应码是2xx，则继续执行，若上游服务返回的是401或403，则将响应返回给客户端
+
+- 原理：收到请求后，生成子请求，子请求的内容与客户端请求的内容是相同的。通过反向代理技术把请求传递给上游服务
+
+- 默认未编译进Nginx，通过--with-http_auth_request_module启用
+
+- 指令
+
+  ```nginx
+  Syntax: auth_request uri | off; # 核心指令
+  Default: auth_request off;
+  Context: http, server, location
+  
+  Syntax: auth_request_set $variable value; # 上面指令处理完后设定一个变量做进一步处理
+  Default: —
+  Context: http, server, location
+  ```
+
+配置示例如下：
+
+```nginx
+# cat access.conf
+server {
+	server_name access.taohui.tech;
+	error_log  logs/error.log  debug;
+	#root html/;
+	default_type text/plain;
+	location /auth_basic {
+		satisfy any;
+		auth_basic "test auth_basic";
+		auth_basic_user_file examples/auth.pass;
+		deny all;
+	}
+
+	location / {
+		auth_request /test_auth;
+	}
+
+	location = /test_auth {
+		proxy_pass http://127.0.0.1:8090/auth_upstream;
+		proxy_pass_request_body off;
+    		proxy_set_header Content-Length "";
+    		proxy_set_header X-Original-URI $request_uri;
+	}
+}
+```
+
+auth_request模块对用于一个统一的用户鉴权系统是非常由于的。
 
 ## 4.19 access阶段的satisfy指令
 
+前面提到了access的阶段的三个http模块，那么是不是说这三个模块任意一个模块拒绝了用户的请求，用户的请求就得不到执行了呢？并不是这样。也不是严格按三个模块顺序执行。这是因为Nginx的框架中提供了一个satisfy指令，这个执行运行我们改变了模块的执行顺序。
 
+satisfy指令语法
+
+```nginx
+Syntax: satisfy all | any;
+Default: satisfy all;
+Context: http, server, location
+```
+
+access阶段的模块：
+
+- access模块
+- auth_basic模块
+- auth_request模块
+- 其他模块
+
+satisfy all就是说前三个模块都必须放行这个请求，这个请求才能继续向下执行。任何一个模块拒绝了这个请求，我们都将返回4xx或5xx系列的错误给用户。
+
+如果是satisfy any，那么虽然我们的模块的执行顺序还是access，auth_basic, auth_request，但是只要有任意一个模块同意请求放行，即使它之前或之后的模块拒绝了，仍然继续执行请求。流程图如下：
+
+![](./satisfy.png)
+
+**问题**
+
+1. 如果有return指令，access阶段会生效吗？
+
+   肯定不会生效，因为return指令位于server rewrite和rewrite阶段，领先于access阶段。
+
+2. 多个access模块的顺序有影响吗？
+
+   肯定是有影响的，查看ngx_modules.c:
+
+   - &ngx_http_auth_request_module,
+   - &ngx_http_auth_basic_module,
+   - &ngx_http_access_module,
+
+3. 输对密码，下面可以访问到文件吗？
+
+   ```nginx
+   location /{
+       satisfy any;
+       auth_basic "test auth_basic";
+       auth_basic_user_file examples/auth.pass;
+       deny all;
+   }
+   ```
+
+   是可以访问到的
+
+4. 如果把deny all提到auth_basic之前呢？
+
+   是可以的，因为它没有顺序要求，只要模块的顺序就可以了。
+
+5. 如果改为allow all, 有机会输入密码吗？
+
+   没有机会输入，因为我们配置的是satisfy any，任意一个模块同意就可以了，而allow all是access模块的，access模块先于auth_basic模块执行。它已经同意了，auth_basic模块就没有机会执行了
+
+satisfy指令对于我们控制access模块的行为很有帮助，当然它也引起我们很多困惑。熟悉这个指令对于我们控制访问的权限很有帮助。
 
 ## 4.20 precontent阶段：按序访问资源的try_files模块
 
