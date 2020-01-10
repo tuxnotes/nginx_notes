@@ -2470,11 +2470,107 @@ satisfy指令对于我们控制access模块的行为很有帮助，当然它也�
 
 ## 4.20 precontent阶段：按序访问资源的try_files模块
 
+precontent阶段的try_files模块只提供了一个指令，这个指令对我们做反向代理时非常有帮助。
 
+模块：ngx_http_try_files_module默认编译到nginx中的，没办法取消掉
+
+功能：依次试图访问多个url对应的文件(由root或alias指令指定)，当文件存在时直接返回文件内容，如果所有文件都不存在，则按最后一个url或code返回
+
+语法：
+
+```nginx
+Syntax: try_files file ... uri; # 文件路径可以放多个，也就是说访问一个请求的时候会依次的去尝试这些文件可以返回，只要有一个文件可以返回，就立刻返回文件的内容
+		try_files file ... =code;
+Default: —
+Context: server, location
+```
+
+配置示例如下：
+
+```nginx
+# cat tryfiles.conf
+server {
+	server_name tryfiles.taohui.tech;
+	error_log  logs/myerror.log  info;
+	root html/;
+	default_type text/plain;
+	
+	location /first {
+    		try_files /system/maintenance.html
+              		$uri $uri/index.html $uri.html
+              		@lasturl;
+	}
+
+	location @lasturl {
+    		return 200 'lasturl!\n';
+	}
+
+	location /second {
+		try_files $uri $uri/index.html $uri.html =404;
+	}
+
+}
+```
+
+在搭建WordPress站点的时候会经常用到try_files,其对反向代理场景非常有用。我们可以先去尝试在Nginx上直接去获取磁盘上的内容，如果没有这个文件再反向代理到我们的上游服务，如WordPress。
 
 ## 4.21 实时拷贝流量：precontent阶段的mirror模块
 
+precontent阶段的mirror模块可以帮助我们创建一份镜像流量，比如生成环境中 我们处理一些请求，这些请求我可能需要把它们同步的的COPY一份到我的测试环境或开发环境做处理。那么mirror模块就可以完成这样的工作。
 
+模块：ngx_http_mirror_module，默认是编译到Nginx中的，可以通过--without-http_mirror_module移除
+
+功能：处理请求时，生成子请求访问其他服务，对子请求的返回值不做处理
+
+语法：
+
+```nginx
+Syntax: mirror uri | off; # 通常指向反向代理
+Default: mirror off;
+Context: http, server, location
+
+Syntax: mirror_request_body on | off;
+Default: mirror_request_body on;
+Context: http, server, location
+```
+
+请求到达Nginx后，生成子请求，子请求可以通过反向代理去访问我们的其他环境，比如我们的测试环境，而对测试环境等返回的内存是不做处理的。
+
+配置示例：
+
+假设有如下上游服务：
+
+```nginx
+server {
+	listen 10020;
+	location / {
+		return 200 'mirror response!';
+	}
+}
+```
+
+mirror指令相关的配置如下：
+
+```nginx
+# cat mirror.conf
+server {
+    listen 8001;
+    error_log logs/error.log debug;
+    
+    location / {
+        mirror /mirror; # copy一份流量发到mirror
+        mirror_request_body off;
+    }
+    
+    location = /mirror {
+        internal;
+        proxy_pass http://127.0.0.1:10020$request_uri;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-Original-URI $request_uri;
+    }
+}
+```
 
 ## 4.22 content阶段：详解root和alias指令
 
