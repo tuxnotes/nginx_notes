@@ -2574,11 +2574,95 @@ server {
 
 ## 4.22 content阶段：详解root和alias指令
 
+content阶段有一个非常常用的模块叫static模块, 此模块很少见，但其提供的root和alias指令却是常用指令。它默认有Nginx框架提供，无法将其移除。其提供的root和alias指令都是用于把url映射为静态文件，返回静态文件内容。差别关键在于与location的配合。语法如下
 
+```nginx
+Syntax: alias path;
+Default: —
+Context: location
+
+Syntax: root path;
+Default: root html;
+Context: http, server, location, if in location
+```
+
+**功能**
+
+两者的功能都是将url映射为文件路径，以返回静态文件内容
+
+**差别**
+
+差别在于与location的配合。location中我们可以配置一些url与用户请求的url做匹配。
+
+root会把location后的url添加到指指定的path后，即root会将完整url映射仅文件路径中
+
+而alias对location后的url不会添加到path之后。
+
+第二差别就是如语法里面的，root是有默认的html。且上下文范围不同。
+
+**问题**
+
+访问以下url会得到什么响应
+
+```nginx
+/root
+/alias
+/root/1.txt
+/alias/1.txt
+```
+
+假设存在文件`html/first/1.txt`
+
+Nginx配置如下
+
+```nginx
+server {
+	server_name static.taohui.tech;
+	error_log  logs/myerror.log  info;
+	
+	location /root {
+		root html;
+	}
+
+	location /alias {
+    		alias html;
+	}
+
+	location ~ /root/(\w+\.txt) {
+		root html/first/$1;
+	}
+
+	location ~ /alias/(\w+\.txt) {
+		alias html/first/$1;
+	}
+
+	location  /RealPath/ {
+		alias html/realpath/;
+                return 200 '$request_filename:$document_root:$realpath_root\n';
+	}
+
+}
+```
 
 ## 4.23 static模块提供的3个变量
 
+当访问静态资源时，会有request_filename, document_root, realpath_root三个变量
 
+request_filename：待访问文件的完整路径，文件包括其扩展名
+
+document_root：指向这个文件所属的文件夹，由URI和root/alias规则生成的文件夹路径
+
+realpath_root：将document_root中的软连接等换成真实路径。document_root可能含有软连接
+
+问题：当有如下配置时，访问`/RealPath/1.txt`时，这三个变量的值各为多少？
+
+```nginx
+location /RealPath/ {
+	alias html/realpath/;
+}
+```
+
+下面介绍static提供的其他的功能，如当我们读取磁盘个上的文件的时候我们会根据文件的扩展名做一次映射，如之前介绍过的type指令就负责做这样一件事情。
 
 ## 4.24 static模块对URL不以斜杠结尾却访问目录的做法
 
